@@ -47,18 +47,6 @@ def parse_shard_info(tx):
 
     return input_shards, input_valids, output_shard, output_valid
 
-def set_consensus_log(id: int):
-    logger = logging.getLogger("consensus-node-"+str(id))
-    logger.setLevel(logging.DEBUG)
-    formatter = logging.Formatter(
-        '%(asctime)s %(filename)s [line:%(lineno)d] %(funcName)s %(levelname)s %(message)s ')
-    if 'log' not in os.listdir(os.getcwd()):
-        os.mkdir(os.getcwd() + '/log')
-    full_path = os.path.realpath(os.getcwd()) + '/log/' + "consensus-node-"+str(id) + ".log"
-    file_handler = logging.FileHandler(full_path)
-    file_handler.setFormatter(formatter) 
-    logger.addHandler(file_handler)
-    return logger
 
 def hash(x):
     return hashlib.sha256(pickle.dumps(x)).digest()
@@ -121,7 +109,7 @@ class RotatingLeaderHotstuff():
     :param K: a test parameter to specify break out after K epochs
     """
 
-    def __init__(self, sid, shard_id, pid, S, T, Bfast, Bacs, shard_num, N, f, sPK, sSK, sPK1, sSK1, sPK2s, sSK2, ePK, eSK, send, recv, K=3, mute=False, omitfast=False):
+    def __init__(self, sid, shard_id, pid, S, T, Bfast, Bacs, shard_num, N, f, sPK, sSK, sPK1, sSK1, sPK2s, sSK2, ePK, eSK, send, recv, logg, K=3, mute=False, omitfast=False):
 
         self.SLOTS_NUM = S
         self.TIMEOUT = T
@@ -144,7 +132,7 @@ class RotatingLeaderHotstuff():
         self.eSK = eSK
         self._send = send
         self._recv = recv
-        self.logger = set_consensus_log(pid + shard_id * N)
+        self.logger = logg
         self.epoch = 0  # Current block number
         self.transaction_buffer = Queue()
         self._per_epoch_recv = {}  # Buffer of incoming messages
@@ -193,7 +181,7 @@ class RotatingLeaderHotstuff():
 
         def _recv_loop():
             """Receive messages."""
-            while True:
+            while not self._stop_recv_loop:
                 #gevent.sleep(0)
                 try:
                     (sender, (r, msg)) = self._recv()
@@ -210,7 +198,7 @@ class RotatingLeaderHotstuff():
         self._recv_thread.start()
 
         self.s_time = time.time()
-        print("shard: ", self.shard_id, "node: ", self.id, " round: ", self.round, " starts Hotstuff BFT consensus")
+        #print("shard: ", self.shard_id, "node: ", self.id, " round: ", self.round, " starts Hotstuff BFT consensus")
         if self.logger != None:
             self.logger.info('Node %d starts to run at time:' % self.id + str(self.s_time))
 
@@ -341,7 +329,7 @@ class RotatingLeaderHotstuff():
             #while break_count < self.N:
                 (sender, msg) = break_recv.get()
                 break_count+=1
-                print(f"shard {self.shard_id} node {self.id} break_count {break_count}, received from {sender}")
+                #print(f"shard {self.shard_id} node {self.id} break_count {break_count}, received from {sender}")
 
         def handle_messages_vote_recv():
             nonlocal voters, votes, decides
@@ -639,7 +627,7 @@ class RotatingLeaderHotstuff():
         #    wait_newview_msg()
 
         # Setup handler of view change requests
-        vc_thread = gevent.spawn(handle_viewchange_msg)
+        #vc_thread = gevent.spawn(handle_viewchange_msg)
 
 
         # Wait either view_change handler done or fast_path done
@@ -655,11 +643,11 @@ class RotatingLeaderHotstuff():
             if self.logger != None:
                 self.logger.info('Fastpath of epoch %d completed' % e)
 
-        def wait_for_vc_msg():
+        '''def wait_for_vc_msg():
             vc_thread.get()
             vc_ready.set()
             if self.logger != None:
-                self.logger.info('VC messages of epoch %d collected' % e)
+                self.logger.info('VC messages of epoch %d collected' % e)'''
 
         gevent.spawn(wait_for_fastpath)
         vc_start.wait()
@@ -672,25 +660,26 @@ class RotatingLeaderHotstuff():
                 notarized_block = latest_notarized_block
                 #print("notarized_block ", notarized_block)
                 assert notarized_block is not None
-                payload_digest = hash(notarized_block[3])
+                #payload_digest = hash(notarized_block[3])
                 self.tx_batch = notarized_block[3]
                 #print('self.tx_batch ', self.tx_batch)
-                notarized_block_header = (notarized_block[0], notarized_block[1], notarized_block[2], payload_digest)
+                #notarized_block_header = (notarized_block[0], notarized_block[1], notarized_block[2], payload_digest)
                 notarized_block_hash, notarized_block_raw_Sig, (epoch_txcnt, weighted_delay) = notarization
                 self.txdelay = (self.txcnt * self.txdelay + epoch_txcnt * weighted_delay) / (self.txcnt + epoch_txcnt)
-                self.txcnt += epoch_txcnt
+                #self.txcnt += epoch_txcnt
                 #assert hash(notarized_block_header) == notarized_block_hash
-                o = (notarized_block_header, notarized_block_raw_Sig)
-                send(-1, ('VIEW_CHANGE', '', o))
+                #o = (notarized_block_header, notarized_block_raw_Sig)
+                #send(-1, ('VIEW_CHANGE', '', o))
             else:
-                notarized_block_header = None
+                '''notarized_block_header = None
                 o = (notarized_block_header, None)
-                send(-1, ('VIEW_CHANGE', '', o))
+                send(-1, ('VIEW_CHANGE', '', o))'''
+                pass
         except AssertionError:
             print("Problematic notarization....")
 
-        gevent.spawn(wait_for_vc_msg)
-        vc_ready.wait()
+        #gevent.spawn(wait_for_vc_msg)
+        #vc_ready.wait()
 
         voters = set()
         votes = dict()
@@ -708,7 +697,16 @@ class RotatingLeaderHotstuff():
 
 
         tx_batch = self.tx_batch
-        print(type(tx_batch), len(tx_batch))
+        #print(type(tx_batch), len(tx_batch))
+        if self.logger != None:
+            tx_cnt = str(json.loads(tx_batch)).count("Dummy TX")
+            self.txcnt += tx_cnt
+            self.logger.info('Node %d Delivers Hotstuff Block with having %d TXs' % (self.id, tx_cnt))
+            end = time.time()
+            self.logger.info('Hotstuff Block Delay at Node %d: ' % self.id + str(end - self.s_time))
+            self.logger.info('Current Block\'s TPS at Node %d: ' % self.id + str(tx_cnt / (end - self.s_time)))
+
+
         merkle_tree = group_and_build_merkle_tree(tx_batch)
         rt = merkle_tree[0][1]
 
@@ -728,12 +726,12 @@ class RotatingLeaderHotstuff():
         TXs = read_pkl_file(self.TXs)
         tx_batch = json.loads(txs)
         #print(len(tx_batch))
-        print('node %d in shard %d before BFT has %d TXS' %(self.id, self.shard_id, len(TXs)))
+        #print('node %d in shard %d before BFT has %d TXS' %(self.id, self.shard_id, len(TXs)))
         for tx in tx_batch:
             #print(tx)
             if tx in TXs:
                 TXs.remove(tx)
-        print('node %d in shard %d after BFT has %d TXS' %(self.id, self.shard_id, len(TXs)))
+        #print('node %d in shard %d after BFT has %d TXS' %(self.id, self.shard_id, len(TXs)))
         write_pkl_file(TXs, self.TXs)
 
 
@@ -743,7 +741,7 @@ class RotatingLeaderHotstuff():
         # (TODO: Sent according to the shards involved)
         if self.id == 0:
                 send(-3, ('LD', '', (txs, Sigma, rt, shard_branch, positions)))
-                print("shard ", self.shard_id, " round ", self.round, " send LD message to other shards")
+                #print("shard ", self.shard_id, " round ", self.round, " send LD message to other shards")
         #print("shard %d node %d gets return values" %(self.shard_id, self.id))
 
         send(-4, ('BREAK', '', ()))
@@ -754,6 +752,6 @@ class RotatingLeaderHotstuff():
                 break
             time.sleep(0)
         #time.sleep(10)
-
+        self.logger.info(f"after round {self.round} , {self.TXs} exists {len(read_pkl_file(self.TXs))} txs")
         print(f"after round {self.round} , {self.TXs} exists {len(read_pkl_file(self.TXs))} txs")
         recv_t.kill()

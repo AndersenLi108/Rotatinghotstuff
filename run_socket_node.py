@@ -1,3 +1,7 @@
+import logging
+import os
+import pickle
+import re
 from gevent import monkey; monkey.patch_all(thread=False)
 
 import time
@@ -11,6 +15,23 @@ from network.socket_client import NetworkClient
 from multiprocessing import Value as mpValue, Queue as mpQueue
 from ctypes import c_bool
 
+def read_pkl_file(file_path):
+    with open(file_path, 'rb') as f:
+        data = pickle.load(f)
+    return data
+
+def set_consensus_log(id: int):
+    logger = logging.getLogger("consensus-node-" + str(id))
+    logger.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(
+        '%(asctime)s %(filename)s [line:%(lineno)d] %(funcName)s %(levelname)s %(message)s ')
+    if 'log' not in os.listdir(os.getcwd()):
+        os.mkdir(os.getcwd() + '/log')
+    full_path = os.path.realpath(os.getcwd()) + '/log/' + "consensus-node-" + str(id) + ".log"
+    file_handler = logging.FileHandler(full_path)
+    file_handler.setFormatter(formatter)  # 可以通过setFormatter指定输出格式
+    logger.addHandler(file_handler)
+    return logger
 
 if __name__ == '__main__':
 
@@ -106,7 +127,9 @@ if __name__ == '__main__':
     net_server = NetworkServer(my_address[1], my_address[0], i, addresses, server_to_bft, server_ready, stop)
     net_client = NetworkClient(my_address[1], my_address[0], i, shard_id, N, addresses, client_from_bft, client_ready, stop,
                                bft_running, dynamic=False)
-    bft = RotatingHotstuffBFTNode(sid, shard_id, i, S, T, B, F, shard_num, N, f, f'/home/lyn/Hotstuff/TXs_file/TXs_{shard_id * N + i}', bft_from_server, bft_to_client, net_ready, stop, K, mute=False, omitfast=False, bft_running=bft_running)
+    
+    logg = set_consensus_log(i + shard_id * N)
+    bft = RotatingHotstuffBFTNode(sid, shard_id, i, S, T, B, F, shard_num, N, f, f'/home/lyn/Hotstuff/TXs_file/TXs{shard_id * N + i}', bft_from_server, bft_to_client, net_ready, stop, logg, K, mute=False, omitfast=False, bft_running=bft_running)
     #print(O)
     net_server.start()
     net_client.start()
@@ -120,16 +143,39 @@ if __name__ == '__main__':
     print("network ready!!!")
 
     start = time.time()
-    for j in range(2):
+    for j in range(5):
+        logg.info('shard_id %d, node %d BFT round %d' % (shard_id, i, j))
         print(f"shard {shard_id}, node {i} BFT round {j}")
         bft_thread = Greenlet(bft.run)
         bft_thread.start()
         bft_thread.join()
 
+    time.sleep(2)
     with stop.get_lock():
         stop.value = True
-        print("shard ", shard_id, "node ",i," stop; total time: ", time.time()-start)
+        #print("shard ", shard_id, "node ",i," stop; total time: ", time.time()-start)
+        total_time = time.time()-start - 2
 
+
+    with open(f'log/consensus-node-{i + shard_id * N}.log','r') as f:
+        content = f.read()
+    round_pattern = r"breaks in (\d+\.\d+) seconds"
+    round= re.findall(round_pattern,content)
+    block_pattern = r"Hotstuff Block Delay at Node \d+: (\d+\.\d+)"
+    block = re.findall(block_pattern,content)
+
+    round_numbers = [float(num) for num in round]
+    block_numbers = [float(num) for num in block]
+    round_delay = sum(round_numbers) / len(round_numbers)
+    block_delay = sum(block_numbers) / len(block_numbers)
+
+    num = 0.9
+    latency = num * block_delay + (1 - num) * (block_delay + round_delay)
+
+    logg.info('shard_id %d node %d stop; total time: %f; total TPS: %f; average latency: %f' % (shard_id, i, total_time, (
+                20000 - len(read_pkl_file(f'/home/lyn/Hotstuff/TXs_file/TXs{shard_id * 4 + i}'))) / total_time, latency))
+    print('shard_id %d node %d stop; total time: %f; total TPS: %f; average latency: %f' % (shard_id, i, total_time, (
+                20000 - len(read_pkl_file(f'/home/lyn/Hotstuff/TXs_file/TXs{shard_id * 4 + i}'))) / total_time, latency))
     time.sleep(10)
     net_client.join()
     net_client.terminate()

@@ -52,7 +52,6 @@ def hsfastpath(sid, shard_id, pid, N, f, leader, tx_to_send, output_notraized_bl
     hash_prev = hash_genesis
     pending_block = None
     notraized_block = None
-    fixed_block = None
 
     # Leader's temp variables
     voters = defaultdict(lambda: set())
@@ -78,7 +77,7 @@ def hsfastpath(sid, shard_id, pid, N, f, leader, tx_to_send, output_notraized_bl
 
 
     def handle_messages():
-        nonlocal leader, hash_prev, pending_block, notraized_block, fixed_block, voters, votes, slot_cur
+        nonlocal leader, hash_prev, pending_block, notraized_block, voters, votes, slot_cur
 
         while True:
 
@@ -190,12 +189,11 @@ def hsfastpath(sid, shard_id, pid, N, f, leader, tx_to_send, output_notraized_bl
     """
 
     def one_slot():
-        nonlocal shard_id, N, pending_block, notraized_block, fixed_block, hash_prev, slot_cur, epoch_txcnt, delay, e_times, s_times, txcnt, weighted_delay
-
+        nonlocal shard_id, N, slot_cur, hash_prev, weighted_delay, epoch_txcnt
         #print('3')
 
-        if logger is not None:
-            logger.info("Entering slot %d" % slot_cur)
+        '''if logger is not None:
+            logger.info("Entering slot %d" % slot_cur)'''
         #print("Entering slot %d" % slot_cur)
 
         s_times[slot_cur] = time.time()
@@ -218,7 +216,7 @@ def hsfastpath(sid, shard_id, pid, N, f, leader, tx_to_send, output_notraized_bl
 
         slot_noncritical_signal.clear()
         msg_noncritical_signal.wait()
-
+        '''
         if pending_block is not None:
 
             if notraized_block is not None:
@@ -241,14 +239,24 @@ def hsfastpath(sid, shard_id, pid, N, f, leader, tx_to_send, output_notraized_bl
 
 
             if output_notraized_block is not None:
-                output_notraized_block((notraized_block, (h_p, Sigma_p, (epoch_txcnt, weighted_delay))))
+                output_notraized_block((notraized_block, (h_p, Sigma_p, (epoch_txcnt, weighted_delay))))'''
 
         pending_block = (sid, slot_cur, h_p, Sigma_p, batches)
         pending_block_header = (sid, slot_cur, h_p, hash(batches))
         hash_prev = hash(pending_block_header)
 
-        if logger is not None:
-            logger.info("Leaving slot %d" % slot_cur)
+        notraized_block = (pending_block[0], pending_block[1], pending_block[2], pending_block[4])
+
+        e_times[notraized_block[1]] = time.time()
+        delay[notraized_block[1]] = e_times[notraized_block[1]] - s_times[notraized_block[1]]
+        txcnt[notraized_block[1]] = str(notraized_block).count("Dummy TX")
+        weighted_delay = (epoch_txcnt * weighted_delay + txcnt[notraized_block[1]] * delay[notraized_block[1]]) / (epoch_txcnt + txcnt[notraized_block[1]])
+        epoch_txcnt += txcnt[notraized_block[1]]
+
+        output_notraized_block((notraized_block, (h_p, Sigma_p, (epoch_txcnt, weighted_delay))))
+
+        '''if logger is not None:
+            logger.info("Leaving slot %d" % slot_cur)'''
 
         slot_cur = slot_cur + 1
         slot_noncritical_signal.set()
@@ -266,7 +274,7 @@ def hsfastpath(sid, shard_id, pid, N, f, leader, tx_to_send, output_notraized_bl
     recv_thread = gevent.spawn(handle_messages)
     #gevent.sleep(0)
 
-    while slot_cur <= SLOTS_NUM + 2:
+    while slot_cur <= SLOTS_NUM:
 
         #if logger is not None:
         #    logger.info("Enter fastpath's slot %d out of all %d slots" % (slot_cur, SLOTS_NUM))
@@ -287,7 +295,7 @@ def hsfastpath(sid, shard_id, pid, N, f, leader, tx_to_send, output_notraized_bl
         #timeout = Timeout(TIMEOUT, False)
         #timeout.start()
 
-        timeout = Timeout(TIMEOUT)
+        '''timeout = Timeout(TIMEOUT)
         #print(TIMEOUT)
         timeout.start()
         try:
@@ -308,10 +316,9 @@ def hsfastpath(sid, shard_id, pid, N, f, leader, tx_to_send, output_notraized_bl
                 logger.info("Fastpath Timeout!")
             break
         timeout.cancel()
-        timeout.close()
+        timeout.close()'''
+        one_slot()
 
-    if logger is not None:
-        logger.info("Leaves fastpath at %d slot" % (slot_cur))
 
     if notraized_block != None:
         return pending_block[2], pending_block[3], (epoch_txcnt, weighted_delay)  # represents fast_path successes

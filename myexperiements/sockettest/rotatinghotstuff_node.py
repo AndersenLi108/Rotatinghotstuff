@@ -81,7 +81,7 @@ def parse_shard_info(tx):
 
 class RotatingHotstuffBFTNode (RotatingLeaderHotstuff):
 
-    def __init__(self, sid, shard_id, id, S, T, Bfast, Bacs, shard_num, N, f, TXs_file_path: str, bft_from_server: Callable, bft_to_client: Callable, ready: mpValue, stop: mpValue, K=3, mode='debug', mute=False, bft_running: mpValue=mpValue(c_bool, True), omitfast=False):
+    def __init__(self, sid, shard_id, id, S, T, Bfast, Bacs, shard_num, N, f, TXs_file_path: str, bft_from_server: Callable, bft_to_client: Callable, ready: mpValue, stop: mpValue, logg, K=3, mode='debug', mute=False, bft_running: mpValue=mpValue(c_bool, True), omitfast=False):
         self.sPK, self.sPK1, self.sPK2s, self.ePK, self.sSK, self.sSK1, self.sSK2, self.eSK = load_key(id, N)
         #self.recv_queue = recv_q
         #self.send_queue = send_q
@@ -93,21 +93,12 @@ class RotatingHotstuffBFTNode (RotatingLeaderHotstuff):
         self.running = bft_running
         self.TXs = TXs_file_path
 
-        RotatingLeaderHotstuff.__init__(self, sid, shard_id, id, S, T, max(int(Bfast), 1), max(int(Bacs/N), 1), shard_num, N, f, self.sPK, self.sSK, self.sPK1, self.sSK1, self.sPK2s, self.sSK2, self.ePK, self.eSK, send=None, recv=None, K=K, mute=mute, omitfast=omitfast)
+        RotatingLeaderHotstuff.__init__(self, sid, shard_id, id, S, T, max(int(Bfast), 1), max(int(Bacs/N), 1), shard_num, N, f, self.sPK, self.sSK, self.sPK1, self.sSK1, self.sPK2s, self.sSK2, self.ePK, self.eSK, send=None, recv=None, logg=logg, K=K, mute=mute, omitfast=omitfast)
 
     def prepare_bootstrap(self):
         self.logger.info('node id %d is inserting dummy payload TXs' % (self.id))
         if self.mode == 'test' or 'debug':  # K * max(Bfast * S, Bacs)
             TXs = read_pkl_file(self.TXs)
-            '''k = 0
-            for tx in TXs:
-                input_shards, input_valids, output_shard, output_valid = parse_shard_info(tx)
-                if (self.shard_id in input_shards and input_valids[input_shards.index(self.shard_id)] == 1) or (
-                        self.shard_id == output_shard and output_valid == 1):
-                    Dumbo.submit_tx(self, tx)
-                    k += 1
-                    if k == self.B:
-                        break'''
             k = 0
             for tx in TXs:
                 input_shards, input_valids, output_shard, output_valid = parse_shard_info(tx)
@@ -120,6 +111,7 @@ class RotatingHotstuffBFTNode (RotatingLeaderHotstuff):
                 else:
                     TXs.remove(tx)
 
+            self.logger.info('node %d in shard %d after extract batch has %d TXS' % (self.id, self.shard_id, len(TXs)))
             print('node %d in shard %d after extract batch has %d TXS' % (self.id, self.shard_id, len(TXs)))
             write_pkl_file(TXs,self.TXs)
         else:
