@@ -1,7 +1,9 @@
+import json
 import logging
 import os
 import pickle
 import re
+import sqlite3
 from gevent import monkey; monkey.patch_all(thread=False)
 
 import time
@@ -129,7 +131,18 @@ if __name__ == '__main__':
                                bft_running, dynamic=False)
     
     logg = set_consensus_log(i + shard_id * N)
-    bft = RotatingHotstuffBFTNode(sid, shard_id, i, S, T, B, F, shard_num, N, f, f'/home/lyn/Hotstuff/TXs_file/TXs{shard_id * N + i}', bft_from_server, bft_to_client, net_ready, stop, logg, K, mute=False, omitfast=False, bft_running=bft_running)
+
+    id = shard_id * N + i
+    conn = sqlite3.connect(f'./node_dbs/node{id}.db' )
+    cur = conn.cursor()
+    cur.execute('DROP TABLE IF EXISTS txlist')
+    TXs = read_pkl_file('./TXs')
+    cur.execute('create table if not exists txlist (tx text primary key)') 
+    for tx in TXs:
+        cur.execute('insert into txlist (tx) values (?)', (tx,))
+    conn.commit()
+
+    bft = RotatingHotstuffBFTNode(sid, shard_id, i, S, T, B, F, shard_num, N, f, conn, bft_from_server, bft_to_client, net_ready, stop, logg, K, mute=False, omitfast=False, bft_running=bft_running)
     #print(O)
     net_server.start()
     net_client.start()
@@ -172,10 +185,12 @@ if __name__ == '__main__':
     num = 0.9
     latency = num * block_delay + (1 - num) * (block_delay + round_delay)
 
+    cur.execute('SELECT * FROM txlist')
+    TXs = cur.fetchall()
     logg.info('shard_id %d node %d stop; total time: %f; total TPS: %f; average latency: %f' % (shard_id, i, total_time, (
-                20000 - len(read_pkl_file(f'/home/lyn/Hotstuff/TXs_file/TXs{shard_id * 4 + i}'))) / total_time, latency))
+                20000 - len(TXs)) / total_time, latency))
     print('shard_id %d node %d stop; total time: %f; total TPS: %f; average latency: %f' % (shard_id, i, total_time, (
-                20000 - len(read_pkl_file(f'/home/lyn/Hotstuff/TXs_file/TXs{shard_id * 4 + i}'))) / total_time, latency))
+                20000 - len(TXs)) / total_time, latency))
     time.sleep(10)
     net_client.join()
     net_client.terminate()

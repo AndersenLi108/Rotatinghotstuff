@@ -199,8 +199,6 @@ class RotatingLeaderHotstuff():
 
         self.s_time = time.time()
         #print("shard: ", self.shard_id, "node: ", self.id, " round: ", self.round, " starts Hotstuff BFT consensus")
-        if self.logger != None:
-            self.logger.info('Node %d starts to run at time:' % self.id + str(self.s_time))
 
 
         # For each epoch
@@ -214,9 +212,10 @@ class RotatingLeaderHotstuff():
         for _ in range(self.FAST_BATCH_SIZE):
             tx_to_send.append(self.transaction_buffer.get_nowait())
 
-        TXs = read_pkl_file(self.TXs)
+
+        '''TXs = read_pkl_file(self.TXs)
         TXs = [tx for tx in TXs if tx not in tx_to_send]
-        write_pkl_file(TXs, self.TXs)
+        write_pkl_file(TXs, self.TXs)'''
 
         def make_epoch_send(e):
             def _send(j, o):
@@ -240,7 +239,7 @@ class RotatingLeaderHotstuff():
 
         self.e_time = time.time()
         if self.logger != None:
-            self.logger.info("node %d breaks in %f seconds in round %d with total delivered Txs %d and average delay %f" % (self.id, self.e_time-self.s_time, e, self.txcnt, self.txdelay) )
+            self.logger.info("node %d breaks in %f seconds with total delivered Txs %d and average delay %f" % (self.id, self.e_time-self.s_time, self.txcnt, self.txdelay) )
         else:
             print("node %d breaks in %f seconds with total delivered Txs %d and average delay %f" % (self.id, self.e_time-self.s_time, self.txcnt, self.txdelay))
        
@@ -461,7 +460,8 @@ class RotatingLeaderHotstuff():
 
                            # receive n-f SIGN messages, verify their signatures, delete these transactions from pool and TXs, and set their outputvalid to 1
                             if len(signers) == self.N - self.f:
-                                TXs = read_pkl_file(self.TXs)
+                                #TXs = read_pkl_file(self.TXs)
+                                cur = self.TXs.cursor()
                                 for tx_pool in txs:
                                     '''input_shards, input_valids, output_shard, output_valid = parse_shard_info(tx_pool)
                                     if self.pool[tx_pool] == len(input_shards):
@@ -472,12 +472,14 @@ class RotatingLeaderHotstuff():
                                     _, _, _, output_valid = parse_shard_info(tx_pool)
                                     tx_to_append = tx_pool.replace(f'Output Valid: {output_valid}', f'Output Valid: {1}')
                                     #TXs.remove(tx_pool)
-                                    TXs.append(tx_to_append)
+                                    #TXs.append(tx_to_append)
+                                    cur.execute('INSERT INTO txlist (tx) VALUES (?)', (tx_to_append,))
+                                    self.TXs.commit()
                                     del self.pool[tx_pool]
 
                                 '''有些轮进不来这里，也不知道为啥'''
                                 #print(self.id, self.shard_id)
-                                write_pkl_file(TXs, self.TXs)
+                                #write_pkl_file(TXs, self.TXs)
 
                         #if sign_cnt >= self.N - self.f:
                         #    break
@@ -547,6 +549,7 @@ class RotatingLeaderHotstuff():
         gevent.spawn(handle_message_cl_recv)
         gevent.spawn(handle_messages_break_recv)
 
+        start = time.time()
         tx_invalid = []
         #print(self.shard_id, 'before ', len(tx_to_send), tx_to_send)
         for tx in tx_to_send:
@@ -671,9 +674,9 @@ class RotatingLeaderHotstuff():
                 #o = (notarized_block_header, notarized_block_raw_Sig)
                 #send(-1, ('VIEW_CHANGE', '', o))
             else:
-                '''notarized_block_header = None
-                o = (notarized_block_header, None)
-                send(-1, ('VIEW_CHANGE', '', o))'''
+                #notarized_block_header = None
+                #o = (notarized_block_header, None)
+                #send(-1, ('VIEW_CHANGE', '', o))
                 pass
         except AssertionError:
             print("Problematic notarization....")
@@ -752,6 +755,9 @@ class RotatingLeaderHotstuff():
                 break
             time.sleep(0)
         #time.sleep(10)
-        self.logger.info(f"after round {self.round} , {self.TXs} exists {len(read_pkl_file(self.TXs))} txs")
-        print(f"after round {self.round} , {self.TXs} exists {len(read_pkl_file(self.TXs))} txs")
+        cur = self.TXs.cursor()
+        cur.execute('SELECT * FROM txlist')
+        TXs = cur.fetchall()
+        self.logger.info(f"after round {self.round} , node {self.id} in shard {self.shard_id} exists {len(TXs)} txs")
+        print(f"after round {self.round} , node {self.id} in shard {self.shard_id} exists {len(TXs)} txs")
         recv_t.kill()

@@ -96,24 +96,31 @@ class RotatingHotstuffBFTNode (RotatingLeaderHotstuff):
         RotatingLeaderHotstuff.__init__(self, sid, shard_id, id, S, T, max(int(Bfast), 1), max(int(Bacs/N), 1), shard_num, N, f, self.sPK, self.sSK, self.sPK1, self.sSK1, self.sPK2s, self.sSK2, self.ePK, self.eSK, send=None, recv=None, logg=logg, K=K, mute=mute, omitfast=omitfast)
 
     def prepare_bootstrap(self):
-        self.logger.info('node id %d is inserting dummy payload TXs' % (self.id))
+        #self.logger.info('node id %d is inserting dummy payload TXs' % (self.id))
         if self.mode == 'test' or 'debug':  # K * max(Bfast * S, Bacs)
-            TXs = read_pkl_file(self.TXs)
+            cur = self.TXs.cursor()
+            cur.execute('SELECT * FROM txlist')
+            TXs = cur.fetchall()
+            self.logger.info('node %d in shard %d before extract batch has %d TXS' % (self.id, self.shard_id, len(TXs)))
+            print('node %d in shard %d before extract batch has %d TXS' % (self.id, self.shard_id, len(TXs)))
             k = 0
             for tx in TXs:
-                input_shards, input_valids, output_shard, output_valid = parse_shard_info(tx)
+                cur.execute('DELETE FROM txlist WHERE tx=?', (tx[0],))
+
+                input_shards, input_valids, output_shard, output_valid = parse_shard_info(tx[0])
                 if self.shard_id in input_shards or (
                         self.shard_id == output_shard and output_valid == 1):
-                    RotatingLeaderHotstuff.submit_tx(self, tx)
+                    RotatingLeaderHotstuff.submit_tx(self, tx[0])
                     k += 1
                     if k == self.FAST_BATCH_SIZE:
-                        break
-                else:
-                    TXs.remove(tx)
-
+                        break                   
+            
+            self.TXs.commit()
+            cur.execute('SELECT * FROM txlist')
+            TXs = cur.fetchall()
             self.logger.info('node %d in shard %d after extract batch has %d TXS' % (self.id, self.shard_id, len(TXs)))
             print('node %d in shard %d after extract batch has %d TXS' % (self.id, self.shard_id, len(TXs)))
-            write_pkl_file(TXs,self.TXs)
+            #write_pkl_file(TXs,self.TXs)
         else:
             pass
 
@@ -124,7 +131,7 @@ class RotatingHotstuffBFTNode (RotatingLeaderHotstuff):
     def run(self):
 
         pid = os.getpid()
-        self.logger.info('node %d\'s starts to run consensus on process id %d' % (self.id, pid))
+        #self.logger.info('node %d\'s starts to run consensus on process id %d' % (self.id, pid))
         self.logger.info('parameters: N=%d, f=%d, S=%d, T=%d, fast-batch=%d, acs-batch=%d, K=%d, O=%d' % (self.N, self.f, self.SLOTS_NUM, self.TIMEOUT, self.FAST_BATCH_SIZE, self.FALLBACK_BATCH_SIZE, self.K, self.omitfast))
 
         self._send = lambda j, o: self.bft_to_client((j, o))
