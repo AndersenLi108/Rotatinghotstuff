@@ -722,7 +722,7 @@ class RotatingLeaderHotstuff():
         #print(merkletree,shard_branch)
         rt = merkletree[1]
 
-        #delete txs inside shard
+        '''#delete txs inside shard
         TXs = read_pkl_file(self.TXs)
         tx_batch = json.loads(txs)
         #print(len(tx_batch))
@@ -732,7 +732,7 @@ class RotatingLeaderHotstuff():
             if tx in TXs:
                 TXs.remove(tx)
         #print('node %d in shard %d after BFT has %d TXS' %(self.id, self.shard_id, len(TXs)))
-        write_pkl_file(TXs, self.TXs)
+        write_pkl_file(TXs, self.TXs)'''
 
 
         #print(self.shard_id,self.id,rt,shard_branch)
